@@ -58,6 +58,7 @@ resource "aws_instance" "sample-terraform" {
   ]
   subnet_id                   = aws_subnet.public-a.id
   associate_public_ip_address = "true"
+  key_name                    = aws_key_pair.sample-terraform.id
   root_block_device {
     volume_type = "gp2"
     volume_size = "20"
@@ -70,6 +71,11 @@ resource "aws_instance" "sample-terraform" {
   tags = {
     Name = "sample-terraform"
   }
+}
+
+resource "aws_key_pair" "sample-terraform" {
+  key_name   = "sample-terraform"
+  public_key = file("./sample-terraform-aws-key.pub")
 }
 
 output "public_ip_of_sample-terraform" {
