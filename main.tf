@@ -32,29 +32,53 @@ resource "aws_route_table_association" "public-a" {
   route_table_id = aws_route_table.public-route.id
 }
 
-resource "aws_security_group" "admin" {
-  name        = "admin"
-  description = "Allow SSH inbound traffic"
+resource "aws_security_group" "main" {
+  name        = "sample-terraform-security_group"
+  description = "Sample Terraform Security Group"
   vpc_id      = aws_vpc.myVPC.id
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+}
+
+resource "aws_security_group_rule" "ssh" {
+  security_group_id = aws_security_group.main.id
+  type              = "ingress"
+  cidr_blocks       = ["0.0.0.0/0"]
+  from_port         = 22
+  to_port           = 22
+  protocol          = "tcp"
+}
+
+resource "aws_security_group_rule" "icmp" {
+  security_group_id = aws_security_group.main.id
+  type              = "ingress"
+  cidr_blocks       = ["0.0.0.0/0"]
+  from_port         = -1
+  to_port           = -1
+  protocol          = "icmp"
+}
+
+resource "aws_security_group_rule" "http" {
+  security_group_id = aws_security_group.main.id
+  type              = "ingress"
+  cidr_blocks       = ["0.0.0.0/0"]
+  from_port         = 80
+  to_port           = 80
+  protocol          = "tcp"
+}
+
+resource "aws_security_group_rule" "out_all" {
+  security_group_id = aws_security_group.main.id
+  type              = "egress"
+  cidr_blocks       = ["0.0.0.0/0"]
+  from_port         = 0
+  to_port           = 0
+  protocol          = "-1"
 }
 
 resource "aws_instance" "sample-terraform" {
   ami           = var.images.ap-northeast-1
   instance_type = "t2.nano"
   vpc_security_group_ids = [
-    aws_security_group.admin.id
+    aws_security_group.main.id
   ]
   subnet_id                   = aws_subnet.public-a.id
   associate_public_ip_address = "true"
