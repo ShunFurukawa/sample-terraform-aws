@@ -34,3 +34,9 @@ variable "images" {
     sa-east-1      = "ami-b52890a8"
   }
 }
+
+variable "domain" {
+  description = "使用したいドメイン"
+  type        = string
+  default     = "s-furukawa.work"
+}

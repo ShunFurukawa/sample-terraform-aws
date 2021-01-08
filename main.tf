@@ -14,9 +14,22 @@ resource "aws_internet_gateway" "myGW" {
 }
 
 resource "aws_subnet" "public-a" {
+  vpc_id                  = aws_vpc.myVPC.id
+  cidr_block              = "10.1.1.0/24"
+  availability_zone       = "ap-northeast-1a"
+  map_public_ip_on_launch = true
+  tags = {
+    Name = "sample-terraform-ap-northeast-1a-public-subnet"
+  }
+}
+
+resource "aws_subnet" "public-c" {
   vpc_id            = aws_vpc.myVPC.id
-  cidr_block        = "10.1.1.0/24"
-  availability_zone = "ap-northeast-1a"
+  cidr_block        = "10.1.2.0/24"
+  availability_zone = "ap-northeast-1c"
+  tags = {
+    Name = "sample-terraform-ap-northeast-1c-public-subnet"
+  }
 }
 
 resource "aws_route_table" "public-route" {
@@ -89,9 +102,8 @@ resource "aws_instance" "sample-terraform" {
   vpc_security_group_ids = [
     aws_security_group.main.id
   ]
-  subnet_id                   = aws_subnet.public-a.id
-  associate_public_ip_address = "true"
-  key_name                    = aws_key_pair.sample-terraform.id
+  subnet_id = aws_subnet.public-a.id
+  key_name  = aws_key_pair.sample-terraform.id
   root_block_device {
     volume_type = "gp2"
     volume_size = "20"
@@ -109,6 +121,115 @@ resource "aws_instance" "sample-terraform" {
 resource "aws_key_pair" "sample-terraform" {
   key_name   = "sample-terraform"
   public_key = file("./sample-terraform-aws-key.pub")
+}
+
+resource "aws_lb" "main" {
+  load_balancer_type = "application"
+  name               = "sample-terraform-balancer"
+  security_groups    = [aws_security_group.main.id]
+  subnets            = [aws_subnet.public-a.id, aws_subnet.public-c.id]
+}
+
+resource "aws_lb_listener" "http" {
+  port              = "80"
+  protocol          = "HTTP"
+  load_balancer_arn = aws_lb.main.arn
+  default_action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      status_code  = "200"
+      message_body = "ok"
+    }
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  certificate_arn   = aws_acm_certificate.main.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.main.id
+  }
+}
+
+resource "aws_lb_target_group" "main" {
+  name     = "sample-terraform-lb-target-group"
+  vpc_id   = aws_vpc.myVPC.id
+  port     = 80
+  protocol = "HTTP"
+  health_check {
+    port = 80
+    path = "/"
+  }
+}
+
+resource "aws_lb_listener_rule" "main" {
+  listener_arn = aws_lb_listener.http.arn
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.main.id
+  }
+  condition {
+    path_pattern {
+      values = ["*"]
+    }
+  }
+}
+
+resource "aws_lb_target_group_attachment" "main" {
+  target_group_arn = aws_lb_target_group.main.arn
+  target_id        = aws_instance.sample-terraform.id
+  port             = 80
+}
+
+resource "aws_route53_zone" "main" {
+  name = var.domain
+}
+
+resource "aws_acm_certificate" "main" {
+  domain_name               = var.domain
+  subject_alternative_names = ["*.${var.domain}"]
+  validation_method         = "DNS"
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  depends_on      = [aws_acm_certificate.main]
+  zone_id         = aws_route53_zone.main.id
+  ttl             = 60
+}
+
+resource "aws_acm_certificate_validation" "main" {
+  certificate_arn         = aws_acm_certificate.main.arn
+  validation_record_fqdns = [for record in aws_route53_record.validation : record.fqdn]
+}
+
+resource "aws_route53_record" "main" {
+  type    = "A"
+  name    = var.domain
+  zone_id = aws_route53_zone.main.id
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
 }
 
 output "public_ip_of_sample-terraform" {
